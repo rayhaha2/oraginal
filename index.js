@@ -1225,6 +1225,10 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		if(data['Description'])
 			row.querySelector('[name="description"]').value=data["Description"];
 			row.querySelector('select[name="todo"]').appendChild(createOptions(type,data["Code"]));
+		//历史已删待修改权限及checkbox
+		if(data['IsHistory']=="1") {
+			$(row).css("background-color","#9d9d9d");
+		}
 		return row;
 	};
 	//分享(批量)
