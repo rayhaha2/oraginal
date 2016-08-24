@@ -74,6 +74,8 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		return pos==-1?"":filename.substring(pos+1);
 	};
 	var getNewVer=function(ver){
+		if(!ver)
+			return "1.0";
 		var suffix=ver.match(/(?:\d*)$/)[0];
 		var prefix=ver.substring(0,ver.length-suffix.length);
 		return prefix+(+suffix+1);
@@ -794,487 +796,437 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		});
 	}
 	
-	//上传文件
+	// 上传文件 or 文件夹
 	$("#btnUpload").on("click",function(){
 		$("#dlgUploadFile").modal("show");
-		
 	});
-	$("#dlgUploadFile").on("show.bs.modal",function(e){
-		$('#frmFileUpload input[name="version"]').prop("value","1.0");
+	// 表格默认设置项
+	function DefaultSettings(){
+		throw new Error();
+	}
+	DefaultSettings.newInstance=function(){
+		return this.instance||(this.instance=$.extend(Object.create(DefaultSettings.prototype),{
+			selDefaultFileTodo: $("#selDefaultFileTodo"),
+			selDefaultVersion: $("#selDefaultVersion"),
+			txtDefaultVersion: $("#txtDefaultVersion"),
+			txtDefaultDescription: $("#txtDefaultDescription")
+		}));
+	};
+	DefaultSettings.prototype.getComputedVersionValue=function(input){
+		var value=input.value.trim();
+		if(!value)
+			value=(input.getAttribute("placeholder")||"").trim();
+		return value;
+	};
+	DefaultSettings.prototype.getComputedTodoValue=function(select){
+		var value=select.value;
+		if(value==="inherit")
+			value=this.selDefaultFileTodo.prop("value");
+		return value;
+	};
+	DefaultSettings.prototype.getComputedDescriptionValue=function(input){
+		var value=input.value;
+		if(!value) 
+			value=this.txtDefaultDescription.prop("value");
+		return value;
+	};
+	DefaultSettings.prototype.reset=function(){
+		this.selDefaultFileTodo.prop("value","upgrade").trigger("change");
+		this.selDefaultVersion.prop("value","auto").trigger("change");
+		this.txtDefaultVersion.prop("value","").trigger("change");
+		this.txtDefaultDescription.prop("value","");
+	};
+	var defaults=DefaultSettings.newInstance();
+	// 监听选项关联
+	$("#selDefaultFileTodo").on("change",function(){
+		var defaultValue=this.value;
+		var text=$("option:selected",this).prop("text");
+		uploadListGrid.find('tr[data-type="Doc"] select[name="todo"]').each(function(index,select){
+			select.setAttribute("data-value",this.value);
+			if(this.value==="inherit"){
+				$(select).triggerHandler("change");
+			}
+		}).children('option[value="inherit"]').attr("label",text+"(默认)");
+	}).triggerHandler("change");
+	$("#txtDefaultVersion").prop("value","1.0").on("input",function(){
+		uploadListGrid.find('input[name="version"]').prop("placeholder",this.value);
+	}).trigger("input");
+	$("#txtDefaultDescription").on("input",function(){
+		uploadListGrid.find('input[name="description"]').prop("placeholder",this.value);
+	}).trigger("input");
+	$("#selDefaultVersion").on("change",function(){
+		$("#txtDefaultVersion").css("visibility",this.value==="specified"?"visible":"hidden");
+		if(this.value==="auto"){
+			uploadListGrid.find('tr[data-type="Doc"] input[name="version"]').each(function(index,input){
+				var ver=input.getAttribute("data-value");
+				input.setAttribute("placeholder",getNewVer(ver));
+			});
+		}else if (this.value==="specified") {
+			var defaultVersion=$("#txtDefaultVersion").prop("value");
+			uploadListGrid.find('tr[data-type="Doc"] input[name="version"]').attr("placeholder",defaultVersion);
+		}
+	}).triggerHandler("change");
+	$("#dlgToUpload").on("show.bs.modal",function(e){
+		$("#putFiles").prop("value","");
+		$("#putFolder").prop("value","");
+		$("#divDroparea>span").text("拖放文件到此区域");
+		$("#nextSubmitFiles").prop("disabled",true);
 	}).on("hide.bs.modal",function(e){
-		$(".encoding").css("visibility","hidden");
-		$("#inputfile").prop("value","");
-		$("#inputfile_IE").prop('value',"");
+
 	});
+	var getClientFiles = function(files) {
+		var clientFiles=[];
+		Array.prototype.forEach.call(files,function(file){
+			clientFiles.push({
+				file: file,
+				Id: $.nextUuid(),
+				Name: file.name,
+				Type: "Doc"
+			});
+		});
+		return clientFiles;
+	};
+	var getMergedFiles=function(serverFiles,clientFiles){
+		if(clientFiles.length!=serverFiles.length){
+			//TODO
+		}
+		serverFiles.forEach(function(sFile,index){
+			var cFile=clientFiles[index];
+			sFile.file=cFile.file;
+			sFile.Id=cFile.Id;
+			if(!sFile.Name)
+				sFile.Name=cFile.Name;
+			sFile.Type=cFile.Type;
+		});
+		return serverFiles;
+	};
+	// 修改code就两种情况
+	var Codes={LOCATION_NOT_EXISTS:1,EXISTS:2,NOT_EXISTS:3};
+	var createOptions=function(type,code) {
+		var text = $("#selDefaultFileTodo option:selected").prop("text");
+		var opts = document.createDocumentFragment();
+		if(code===Codes.LOCATION_NOT_EXISTS||code===Codes.NOT_EXISTS) {
+			opts.appendChild(new Option("新建","add"));
+		}else if(code===Codes.EXISTS) {
+			opts.appendChild(new Option(text+"默认","inherit"));
+			opts.appendChild(new Option("升级","upgrade"));
+			opts.appendChild(new Option("覆盖","overwrite"));
+		}
+		return opts;
+	};
+	var clientFiles=[];
+	// 选择文件
+	$("#btnSelectFiles").on("click",function(){
+		$("#putFiles")[0].click();
+	});
+	$("#putFiles").on("change",function(){
+		var files=this.files;
+		if(files.length===0)
+			return;
+		//TODO set busy
+		$("#divDroparea>span").text("已选择 "+files.length+" 文件");
+		$("#nextSubmitFiles").prop("disabled",false);
+		clientFiles=getClientFiles(files);
+		uploadListGridApi.dataFunction=function(rowgroup){
+			var folderId=16;//currentFolder.Id 6270 16
+			var sentFiles=clientFiles.map(function(cFile){
+				return {
+					Name: cFile.Name,
+					Type: cFile.Type,
+					webkitRelativePath: cFile.file["webkitRelativePath"]
+				};
+			});
+			var data={
+				isDirectory:false,
+				folderId: folderId,//currentFolder.Id
+				files: sentFiles
+			};
+			return folderService.uploadFileCheck(data,this).then(function(response){
+				//$("#btnSubmitFiles").removeAttr("disabled");
+				if(response.code===0) {
+					return getMergedFiles(response.data,clientFiles);
+				}
+				throw new Error(response.message);
+			});
+		};
+		uploadListGridApi.load();
+	});
+	// 选择文件夹
+	$("#btnSelectFolder").on("click",function(){
+		$("#putFolder")[0].click();
+	});
+	$("#putFolder").on("change",function(){
+		var files=this.files;
+		if(files.length===0)
+			return;
+		console.log("共选择%i个文件",files.length);
+		console.table(files);
+		var choosenFile = files[0].webkitRelativePath.split("/").shift();
+		var fileInnertext = "已选择 " + choosenFile + " 文件夹";
+		$("#divDroparea>span").text(fileInnertext);
+		$("#nextSubmitFiles").prop("disabled",false);
+		clientFiles=getClientFiles(files);
+		uploadListGridApi.dataFunction();
+		uploadListGridApi.load();
+	});
+	$("#nextSubmitFiles").on("click",function() {
+		$("#dlgToUpload").modal("hide");
+	});
+	// frmFileUpload 待修改
 	$(window).on("beforeunload",function(){
 		$('#frmFileUpload')[0].reset();
 	});
-	//选择文件
-	$('#btnFile').on("click",function(){
-		$("#inputfile").click();
-	});
-	$('#btnFolder').on("click",function(){
-		$("#inputfolder").click();
-	});
-	var dropArea = $("#uploadArea"),
-		dropFile = $("#inputfile");
-	dropArea.addEventListener("click",areaClick, false);
-	dropArea.addEventListener("dragenter",areaDragenter, false);
-	dropArea.addEventListener("dragover",areaDragover, false);
-	dropArea.addEventListener("drop",areaDrop, false);
-	function areaClick() {
-		console.log('click');
-		dropFile.click();
-	}
-	function areaDragenter(ev) {
-		this.className = 'up-area hover';
-		ev.preventDefault();
-	}
-	function areaDragover(ev) {
-		ev.preventDefault();
-	}
-	function areaDrop(ev) {
-		ev.preventDefault();
-		$("#inputfile").prop("files",ev.dataTransfer.files);
-	}
-	$("#inputfile").on("change",function(){
-		var ext=getExtension(this.value);
-		var files = $('#inputfile').prop("files");
-		if(ext=="txt"){
-			$(".encoding").css("visibility","visible");
-		}else if(ext){
-			$(".encoding").css("visibility","hidden");
-		}
-		$('#frmFileUpload select[name="encoding"]').prop("value","");
-		$("#btnSubmitFile").prop("disabled",this.value=="");
-		if (files.length == 1) {
-			$("#inputfile_IE").val(files[0].name);
-		} else if (files.length > 1) {
-			var inputVal = "已选择" +  files.length + "个文件";
-			$("#inputfile_IE").val(inputVal);
-		} else {
-			$("#inputfile_IE").val("未选择任何文件");
+	$(document).on("uploadtasksprogress",function(e){
+		if(e.uploading==0){
+			setTimeout(function(){
+				var btn=$("#btnUploadList");
+				if(btn.attr("aria-expanded")=="true"){
+					btn.triggerHandler("click");
+				}
+			},2000);
 		}
 	});
-	$("#inputfolder").on("change",function(){
-		var ext=getExtension(this.value);
-		var files = $('#inputfolder').prop("files");
-		var fileName = files[0].webkitRelativePath.split("");
-		console.table(fileName);
-		var obj = {};
-		var n = [];
-		if (files.length > 0) {
-			var inputVal = "已选择文件夹 " + fileName[0];
-			$("#inputfile_IE").val(inputVal);
-		} else {
-			$("#inputfile_IE").val("未选择任何文件");
-		}
-		$("#btnSubmitFile").prop("disabled",this.value=="");
-		/*for (var i = 0, j = files.length; i < j; i++) {
-			var a =files[i].webkitRelativePath.split("/");
-			if(a.indexOf(".")==-1)
-			console.table(a.slice(0,a.length-1));
-			obj[i]= a.slice(0,a.length-1);
-			//unique(obj[i],i);
-		}
-		function unique(array,i){
-			var n = array[i+1];//下一个数组
-			for(var i = 0,j = array.length;i < j; i++){
-				if(n.indexOf(array[i]) == -1) n.push(array[i]);
-			}
-		}*/
-		console.log(obj);
-		console.log(n);
-	});
-	//提交文件
-	//$("#frmVersionManagement4upload").bootstrapValidator('destroy');
-	var bootstrapValidator =null;
-	$("#btnSubmitFile").on("click",function(){
-		bootstrapValidator=bootstrapValidator?null:"";
-		var data=homeFileGrid.find("tbody:eq(0)").prop("data");
-		var existsFile=function(name){
-			return data.some(function(item){return item.Name==name;});
-		};
+	// 提交文件/文件夹
+	$("#btnSubmitFiles").on("click",function(){
 		var MAX_SIZE=1024*1024*100;
 		var tasks=[];
+		var folderId=currentFolder.Id;//6270 16
 		var exhibitionNum=$(".exhibitionNum");
 		var promises=[];
-		// 新增
-		var existsRow =[];
-		var rowCheck;
-		var row = null;
-		var currentRow = null;
-		var currentFile = null;
-		var currentFileNum = null;
-		var currRev1 = null;
-		var confilctFiles=[];
-		var cleanFiles=[];
-		var allFiles = null;
-		var folderOnly = [];
-		var existsFile2=function(name){
-			return data.some(function(item) {
-				if(item.Name==name) {
-					rowCheck = "tbody:eq(0) tr[data-id="+ item.Id +"]";
-					var tmpRow = homeFileGrid.find(rowCheck).prop("data")
-					existsRow.push(tmpRow);
-					return true;
-				}});
+		var uploadStat={
+			rejectedMessages:[],
+			successMessages:[],
+			errorMessages:[],
+			rejectedFiles:[],
+			successFiles:[],
+			errorFiles:[]
 		};
-		var sortFiles = function(data) {
-			for(var i=0,j = data.length; i<j; ++i){
-				(existsFile2(data[i].name)?confilctFiles:cleanFiles).push(data[i]);
+		
+		// 文件数据预处理
+		var validClientFiles = [];
+		Array.prototype.forEach.call($('#uploadListGrid tbody>[role="row"]'),function(tr){
+			var cFile = tr.data;
+			cFile.valid=false;
+			var file=cFile.file;
+			if(file.size===0){
+				uploadStat.rejectedFiles.push(file);
+				uploadStat.rejectedMessages.push("文件\""+file.name+"\"大小为0字节");
+				return;
 			}
-		};
-		var splitFile = function(data) {
-			return data.split("/");
-		};
-		var takeFileOut = function(allData) {
-			for(var i=0,j = allData.length; i<j; ++i){
-				if(data[i].type =="Folder") {
-					folderOnly.push(data[i]);
-				}
+			if(file.size>MAX_SIZE){
+				uploadStat.rejectedFiles.push(file);
+				uploadStat.rejectedMessages.push("文件\""+file.name+"\"大小超过100MB");
+				return;
 			}
+			var todo = defaults.getComputedTodoValue(tr.querySelector('select[name="todo"]'));
+			var Description = defaults.getComputedDescriptionValue(tr.querySelector('input[name="description"]'));
+			var Revision = defaults.getComputedVersionValue(tr.querySelector('input[name="version"]'));
+			cFile.valid=true;
+			cFile.request={
+				file: cFile.file,
+				//typeof file.webkitRelativePath==="string"&&file.webkitRelativePath.length>0,判断文件夹or文件
+				isDirectory: !!cFile.webkitRelativePath,
+				folderId: folderId,
+				option: todo==="upgrade"?"update":todo,
+				webkitRelativePath: cFile.webkitRelativePath,
+				Name: cFile.Name,
+				ParentId: cFile.ParentId,
+				Description: Description,
+				DocCode: cFile.DocCode,
+				Revision: Revision,
+				DocId: cFile.DocId,
+				//xhrFunction: new Function(),
+				//forData: new FormData()
+			};
+			validClientFiles.push(cFile);
+		});
+		// 文件开始上传
+		Array.prototype.forEach.call(validClientFiles,function(cFile){
+			var file=cFile.file;
+			delete cFile.file;
+			var request=cFile.request;
+			request.xhrFunction=function(){
+				return xhr;
+			};
+			var xhr=new XMLHttpRequest();
+			var task=new UploadTask(file,currentFolder,xhr,uploadGrid,"添加");
+			tasks.push(task);
+			var formData=new FormData();
+			formData.append("file",file);
+			request.formData=formData;
+			exhibitionNum.attr("data-num",+exhibitionNum.attr("data-num")+1);
+			var prom1=folderService.uploadFolder(request,this).then(function(response){
+				task.code=response.code;
+				var row=uploadGrid.find('tbody>tr[data-id="'+task.id+'"]');
+				row[0].scrollIntoView();
+				if(response.code===0){
+					uploadStat.successFiles.push(file);
+					uploadStat.successMessages.push("文件\""+file.name+"\"上传成功");
+					row.attr("data-state","done");
+					row.find('>td[axis="Progress"]>.nowrap').text("已完成");
+					var fileInfo=response.data[0];
+					task.file.id=fileInfo.fileid;
+				}else{
+					uploadStat.errorFiles.push(file);
+					uploadStat.errorMessages.push(response.message);
+					row.attr("data-state","done");
+					row.find('>td[axis="Progress"]>.nowrap').text("上传失败");
+				}
+			},function(err){
+				//console.log("文件\""+file.name+"\"上传时出错："+err);
+				uploadStat.errorFiles.push(file);
+				uploadStat.errorMessages.push("文件\""+file.name+"\"上传时出错："+err);
+			});
+			prom1.always(function(){
+				var uploading=Math.max(+exhibitionNum.attr("data-num")-1,0);
+				exhibitionNum.attr("data-num",uploading);
+				$(document).triggerHandler(new $.Event("uploadtasksprogress",{
+					uploading:uploading
+				}));
+			});
+			promises.push(prom1);
+		});
+		$("#dlgToUpload2").modal("hide");
+		var toFilesMessage=function(files){
+			return files.length==1?"文件\""+files[0].name+"\"":"\""+files[0].name+"\"等"+files.length+"个文件"
 		};
-		if ($("#inputfile_IE").val().indexOf("已选择文件夹")==-1) {
-				allFiles = $("#inputfile")[0].files;
-				// sort allFiles
-				sortFiles(allFiles);
-				// clean
-				cleanLoop(cleanFiles);
-				// confict
-				conflictLoop(confilctFiles);
-				function cleanLoop(fileData) {
-					// 直接上传
-					if(fileData.length==0) {
-						return;
-					}
-					Array.prototype.forEach.call($("#inputfile")[0].files,function(file){
-						if(existsFile(file.name)){
-							$("#inputfile").prop("value","");
-							return $.pnotify("文件\""+file.name+"\"将不上传"+"：当前目录已经存在同名文件");
-						}
-						if(file.size>MAX_SIZE){
-							$("#inputfile").prop("value","");
-							return $.pnotify("文件\""+file.name+"\"将不上传"+"：文件大小超过100M");
-						}
-						var xhr=new XMLHttpRequest();
-						var task=new UploadTask(file,currentFolder,xhr,uploadGrid,"添加");
-						tasks.push(task);
-						var formData = new FormData();
-						formData.append("file",file);
-						exhibitionNum.attr("data-num",+exhibitionNum.attr("data-num")+1);
-						var prom1=folderService.uploadFile2Folder({
-							folderId: currentFolder.Id,
-							docTypeId: 0,
-							formData: formData,
-							description: $('#fileDescription').val(),
-							version: $('#fileVersion').val(),
-							encoding: '',
-							xhrFunction: function(){
-								return xhr;
-							}
-						}).then(function(response){
-							exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-							task.code=response.code;
-							if(response.code==0){
-								$.pnotify("文件\""+file.name+"\"上传成功","","success");
-								uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("已完成");
-								var fileInfo=response.data[0];
-								task.file.id=fileInfo.fileid;
-								// documentService.findDocumentById({FileId:fileInfo.fileid}, this).then(function(response2){
-								//  homeFileGridApi.add(null,response2.data[0]);
-								// });
-							}else{
-								$.pnotify("文件\""+file.name+"\"上传失败"+response.message,"错误提示","error");
-								uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("上传失败");
-							}
-						},function(){
-							exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-							$.pnotify("文件\""+file.name+"\"上传失败","错误提示","error");
-						});
-						promises.push(prom1);
-					});
-					if(tasks.length==0)
-						return;
-					$.when.apply($,promises).then(function(){
-						//TODO
-						homeFileGridApi.searchParams=currentFolder.Id;
-						homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
-					},function(err){
-						//TODO
-						homeFileGridApi.searchParams=currentFolder.Id;
-						homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
-					});
-					uploadTasks.push.apply(uploadTasks,tasks);
-					uploadGridApi.load();
-					$("#btnUploadList").dropdown("toggle");
-					setTimeout(function(){
-						var row=uploadGrid.find('tbody>tr[data-id="'+tasks[0].id+'"]');
-						row[0].scrollIntoView();
-					});
-					$("#btnUploadList").parent().attr("data-allow-toggle-until",Date.now()+1000);
-				}
-				function conflictLoop(fileData) {
-					// 覆盖或升级
-					for (var i = 0, j = fileData.length; i < j; i++) {
-						var file = fileData[i];
-						if (file.mark==1||file.mark==2) {
-							continue;
-						}
-						if(file.size>MAX_SIZE){
-							$("#inputfile").prop("value","");
-							return $.pnotify("文件\""+file.name+"\"将不上传"+"：文件大小超过100M");
-						}
-						$("#dlgUploadFile").modal("hide");
-						console.log("弹框");
-						$("#dlgUploadFileInfo").modal('show');
-						$("#frmVersionManagement4upload").modal('show');
-						
-						//row=homeFileGrid.find(rowCheck);
-						//currentRow=row.prop("data");
-						currentRow=existsRow[i];
-						$("#spanOldFilename4upload").text(currentRow.Name);
-						$("#spanCurrentRevision4upload").text(currentRow.Revision);
-						$("#frmVersionManagement4upload")[0].reset();
-						$("#rdoSubmitNew4upload").trigger("click");
-						currRev1=$("#spanCurrentRevision4upload").text();
-						//判断当前版本号的最后一位是否为数字
-						currRev1=getNewVer(currRev1);
-						//给新版本号赋值为当前版本号自动加一
-						$("#txtNewRevision4upload").val(currRev1);
-						$("#dlgUploadFileInfo").on("show.bs.modal",function(){
-							$("#frmVersionManagement4upload").data('bootstrapValidator').resetForm(true);
-						}).on("shown.bs.modal",function(){
-							$('input[name="file"]',this).focus();
-							$("#spanOldFilename4upload").text('');
-						});
-						//动态监测radio的选中框为'升级版本'或'覆盖并提交'
-						$("input[name='updateorreplace']").on("change",function(){
-							var bootstrapValidator = $("#frmVersionManagement4upload").data('bootstrapValidator');
-							if($("input[name='updateorreplace']:checked").val()=='2'){
-								
-								$(".submit-option,.version").css('visibility','hidden');
-								bootstrapValidator.enableFieldValidators("revision","disabled");
-								$("#txtNewRevision4upload").prop("disabled",true);
-							}
-							else{
-								$(".submit-option,.version").css('visibility','visible');
-								$("#txtNewRevision4upload").prop("disabled",false);
-								$("#txtNewRevision4upload").val(currRev1);//防止其误删新版本号，赋值使其通过校验
-								bootstrapValidator.enableFieldValidators("revision","enabled");
-								bootstrapValidator.updateStatus('revision', 'NOT_VALIDATED').validateField('revision');
-							}
-						});
-						$(".submit-options").tabs(".submit-option",{
-							tabs:'input[type="radio"]',
-							wouldDefaultPrevented:false
-						});
-						currentFile = confilctFiles[i];
-						currentFileNum= i;
-						//breakConflictLoop(confilctFiles[i],i);
-						return;
-					}
-				}
-
-				$("#frmVersionManagement4upload").bootstrapValidator().on("success.form.bv",function(e){
-					e.preventDefault();
-					if(!$("#frmVersionManagement").data("bootstrapValidator").isValid())
-						return;
-					var formData = new FormData();
-					formData.append("file",currentFile);
-					var data={};
-					data.formData=formData;
-					var SUBMIT="1";
-					var OVERWRITE="2";
-					var chosen=$("input[name='updateorreplace']:checked").val();
-					var description=$('input[name="comment"]').val().trim();
-					var xhr=new XMLHttpRequest();
-					//var file=input.files[0];
-					var task=new UploadTask(currentFile,currentFolder,xhr,uploadGridApi.jqGrid);
-					var exhibitionNum=$(".exhibitionNum");
-					exhibitionNum.attr("data-num",+exhibitionNum.attr("data-num")+1);
-					console.log("用户操作获取数据");
-					$("#dlgUploadFileInfo").modal('hide');
-					if(chosen==OVERWRITE){
-						task.action="覆盖";
-						uploadTasks.push(task);
-						data.fileid=currentRow.Id;
-						data.Code=currentRow.DocCode;
-						data.description=description;
-						data.xhrFunction=function(){return xhr;};
-						documentService.replaceFile(data).then(function(response){
-							exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-							task.code=response.code;
-							if(response.code==0){
-
-								confilctFiles[currentFileNum].mark=1;
-								$.pnotify("文件\""+currentRow.Name+"\"覆盖成功","","success");
-								uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("已完成");
-								homeFileGridApi.searchParams=currentFolder.Id;
-								homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
-								//TODO do sort
-								$('#btnVersionManagementReset').trigger("click");
-								$(".submit-option,.version").css('visibility','visible');
-								$("#txtNewRevision").prop("disabled",false);
-								afterResponse();
-							}else{
-								confilctFiles[currentFileNum].mark=2;
-								$.pnotify(response.message,"错误提示","error");
-								uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("上传失败");
-							}
-						},function(error){
-							exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-							$.pnotify("文件\""+currentRow.Name+"\"上传出错","","error");
-							afterResponse();
-						});
-					}else{
-						console.log("升级");
-						var newRev=$.trim($("#txtNewRevision4upload").val());
-						var currRev=$("#spanCurrentRevision4upload").text();
-						if(currRev==newRev)
-							return $.alertAsync("新版本号不能与当前版本号相同");
-						task.action="升级";
-						uploadTasks.push(task);
-						data.new_revision=newRev;
-						data.doc_code=currentRow.DocCode;
-						data.folderid=currentFolder.Id;
-						data.description=description;
-						data.xhrFunction=function(){return xhr;};
-						documentService.addNewVersionFile(data).then(function(response){
-							exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-							task.code=response.code;
-							if(response.code==0){
-								bootstrapValidator=null;
-								confilctFiles[currentFileNum].mark=1;
-								$.pnotify("文件\""+currentRow.Name+"\"已更新到版本"+newRev,"","success");
-								uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("已完成");
-								homeFileGridApi.searchParams=currentFolder.Id;
-								homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
-								console.log("请求结束");
-								afterResponse();
-							}else{
-								confilctFiles[currentFileNum].mark=2;
-								$.pnotify(response.message,"错误提示","error");
-								uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("上传失败");
-							}
-						},function(){
-							exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-							$.pnotify("文件\""+currentRow.Name+"\"上传出错","","error");
-							afterResponse();
-						});
-					}
-				});
-
-				function breakConflictLoop(file,i) {
-					if (file.mark==1||file.mark==2) {
-						return;
-					}
-					if(!$("#frmVersionManagement4upload").data("bootstrapValidator").isValid())
-						return;
-						//var input=document.getElementById("inputfileForUpdate");
-						//var oldFilename=$("#spanOldFilename").text();
-						//var filename=PathUtils.basename(input.value);
-						/*if(filename!=oldFilename)
-							return $.alertAsync("文件名无效！\n应保证所选文件的名称与原文件名称一致！");*/
-						//var formData=new FormData($("#frmVersionManagement4upload")[0]);
-					return file;
-				}
-				function afterResponse() {
-					uploadGridApi.load();
-					$("#btnUploadList").dropdown("toggle");
-					/*setTimeout(function(){
-						var row2=uploadGrid.find('tbody>tr[data-id="'+task.id+'"]');
-						row2[0].scrollIntoView();
-					});*/
-					$("#btnUploadList").parent().attr("data-allow-toggle-until",Date.now()+1000);
-					console.log("进入循环")
-					conflictLoop(confilctFiles); 
-				}
-				
-				/*Array.prototype.forEach.call($("#inputfile")[0].files,function(file){
-					if(existsFile(file.name)){
-						$("#inputfile").prop("value","");
-						return $.pnotify("文件\""+file.name+"\"将不上传"+"：当前目录已经存在同名文件");
-					}
-					if(file.size>MAX_SIZE){
-						$("#inputfile").prop("value","");
-						return $.pnotify("文件\""+file.name+"\"将不上传"+"：文件大小超过100M");
-					}
-					var xhr=new XMLHttpRequest();
-					var task=new UploadTask(file,currentFolder,xhr,uploadGrid,"添加");
-					tasks.push(task);
-					var formData = new FormData();
-					formData.append("file",file);
-					exhibitionNum.attr("data-num",+exhibitionNum.attr("data-num")+1);
-					var prom1=folderService.uploadFile2Folder({
-						folderId: currentFolder.Id,
-						docTypeId: 0,
-						formData: formData,
-						description: $('#fileDescription').val(),
-						version: $('#fileVersion').val(),
-						encoding: '',
-						xhrFunction: function(){
-							return xhr;
-						}
-					}).then(function(response){
-						exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-						task.code=response.code;
-						if(response.code==0){
-							$.pnotify("文件\""+file.name+"\"上传成功","","success");
-							uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("已完成");
-							var fileInfo=response.data[0];
-							task.file.id=fileInfo.fileid;
-							// documentService.findDocumentById({FileId:fileInfo.fileid}, this).then(function(response2){
-							//  homeFileGridApi.add(null,response2.data[0]);
-							// });
-						}else{
-							$.pnotify("文件\""+file.name+"\"上传失败"+response.message,"错误提示","error");
-							uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("上传失败");
-						}
-					},function(){
-						exhibitionNum.attr("data-num",Math.max(+exhibitionNum.attr("data-num")-1,0));
-						$.pnotify("文件\""+file.name+"\"上传失败","错误提示","error");
-					});
-					promises.push(prom1);
-					// var prom2=$.Deferred(function(deferred){
-					//     md5sum(file,function(hash){
-					//         console.log(hash+" *"+file.name);
-					//         deferred.resolveWith(null,[hash]);
-					//     },function(err){
-					//         deferred.rejectWith(null,[err]);
-					//     });
-					// });
-					// $.when(prom1,prom2).then(function(response,md5hex){
-					//     //TODO
-					// });
-				});*/
-				/*if(tasks.length==0)
-					return;
-				$.when.apply($,promises).then(function(){
-					//TODO
-					homeFileGridApi.searchParams=currentFolder.Id;
-					homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
-				},function(err){
-					//TODO
-					homeFileGridApi.searchParams=currentFolder.Id;
-					homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
-				});
-				uploadTasks.push.apply(uploadTasks,tasks);
-				uploadGridApi.load();
-				$("#btnUploadList").dropdown("toggle");
-				setTimeout(function(){
-					var row=uploadGrid.find('tbody>tr[data-id="'+tasks[0].id+'"]');
-					row[0].scrollIntoView();
-				});
-				$("#btnUploadList").parent().attr("data-allow-toggle-until",Date.now()+1000);*/
-		}else{
-			alert("上传文件夹");
-			allFiles = $("#inputfile_IE")[0].files;
-			for (var i = 0, j = splitFile(allFiles).length; i < j; i++) {
-				splitFile(allFiles)[i]
-			};;
+		if(uploadStat.rejectedFiles.length){
+			var message=toFilesMessage(uploadStat.rejectedFiles)+"将不上传：文件大小为0B，或超过100MB，或已存在同名文件";
+			$.pnotify(message,"","notice");
 		}
+		if(tasks.length==0)
+			return;
+		$.when.apply($,promises).then(function(){
+			//TODO
+			/*if(uploadStat.successFiles.length){
+				var message=toFilesMessage(uploadStat.successFiles)+"上传成功";
+				$.pnotify(message,"","success");
+			}*/
+			homeFileGridApi.searchParams=currentFolder.Id;
+			homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
+		},function(err){
+			//TODO
+			/*if(uploadStat.successFiles.length){
+				var message=toFilesMessage(uploadStat.successFiles)+"上传成功";
+				$.pnotify(message,"","success");
+			}*/
+			if(uploadStat.errorFiles.length){
+				var message=toFilesMessage(uploadStat.errorFiles)+"上传失败："+uploadStat.errorMessages[0];
+				$.pnotify(message,"","error");
+			}
+			homeFileGridApi.searchParams=currentFolder.Id;
+			homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
+		});
+		uploadTasks.push.apply(uploadTasks,tasks);
+		uploadGridApi.load();
+		$("#btnUploadList").dropdown("toggle");
+		setTimeout(function(){
+			var row=uploadGrid.find('tbody>tr[data-id="'+tasks[0].id+'"]');
+			row[0].scrollIntoView();
+		});
+		$("#btnUploadList").parent().attr("data-allow-toggle-until",Date.now()+1000);
 	});
+	window.PathUtils=PathUtils;//XXX
+	uploadListGrid.on("loaded",function(){
+		defaults.reset();
+		uploadListGrid.find('tr[data-type="Doc"] select[name="todo"]').on("change",function(){
+			this.setAttribute("data-value",this.value);
+			var tr=$(this).closest("tr");
+			var computedValue=defaults.getComputedTodoValue(this);
+			var txtInput=tr.find('input[name="version"]');
+			if(computedValue==="upgrade"){
+				txtInput.prop("readOnly",false).prop("value","");
+			}else if(computedValue==="overwrite"){
+				txtInput.prop("readOnly",true).prop("value",txtInput.attr("data-value"));
+			}
+		});
+		// 监听版本号并校验
+		uploadListGrid.find('tbody input[name="version"]').on("change",function(){
+			var q=$(this).prop("value").trim();
+			if(specialSymbol.test(q)) {
+				$(this).prop("value","");
+				return $.alertAsync("名称不能包含特殊字符\\/:*?<>|\"");
+			}
+			var isTure = $(this).attr('data-versions').match(/\S\S*/g)[0].indexOf(q);
+			if (isTure!==-1) {
+				$.alertAsync("此版本号已存在！");
+				$(this).prop("value","");
+			}
+		});
+		$("#txtDefaultVersion").on("change",function(){
+			var that=$(this);
+			var q=that.prop("value").trim();
+			if(specialSymbol.test(q)) {
+				that.prop("value","");
+				return $.alertAsync("名称不能包含特殊字符\\/:*?<>|\"");
+			}
+			var tmpVersion = [];
+			uploadListGrid.find('tbody input[name="version"]').each(function(index,input){
+				tmpVersion.push(input.getAttribute("data-versions").match(/\S\S*/g));
+			});
+			tmpVersion.some(function(f){
+				if(f[0].indexOf(q)!==-1) {
+					that.prop("value","");
+					uploadListGrid.find('tr[data-type="Doc"] input[name="version"]').attr("placeholder","");
+					return $.alertAsync("此版本号已存在！");
+				}
+			});
+		});
+	});
+	window.uploadListGrid=uploadListGrid;
+	var uploadListGridApi=uploadListGrid.ariaGrid({
+		rowgroupTemplate: uploadListGrid.find('template[data-role="typicalRowgroup"]')[0],
+		rowTemplate: uploadListGrid.find('template[data-role="typicalRow"]')[0]
+	}).data("ariaGrid");
+	uploadListGridApi.dataFunction=function(rowgroup){
+		var folderId=currentFolder.Id;//currentFolder.Id 6270 16
+		var sentFiles=clientFiles.map(function(cFile){
+			return {
+				Name: cFile.Name,
+				Type: cFile.Type,
+				webkitRelativePath: cFile.file["webkitRelativePath"]
+			};
+		});
+		var data={
+			isDirectory:true,
+			folderId: folderId,//currentFolder.Id
+			files: sentFiles
+		};
+		return folderService.uploadFileCheck(data,this).then(function(response){
+			//$("#btnSubmitFiles").removeAttr("disabled");
+			if(response.code===0) {
+				return getMergedFiles(response.data,clientFiles);
+			}
+			throw new Error(response.message);
+		});
+	};
+	uploadListGridApi.rowFunction=function(data,index,list){
+		var row=this.typicalRow.cloneNode(true);
+		var type=data['Type'];
+		row.setAttribute("data-id",data['Id']);
+		row.setAttribute("data-type",type);
+		var rowLabel=row.querySelector('[axis="name"]>.row-label');
+		rowLabel.textContent=data['Name'];
+		row.setAttribute("data-type",data['Type']);
+		var suffix=getExtension(data.name).toLowerCase();
+		var perceivedType=mimeUtils.getPerceivedTypeBySuffix(suffix);
+		rowLabel.setAttribute("data-perceived-type",perceivedType);
+		rowLabel.setAttribute("data-ext",suffix);
+		var iconUrl=mimeUtils.getIconBySuffix(suffix);
+		if(iconUrl)
+			rowLabel.style.backgroundImage='url("'+iconUrl+'")';
+		if(data['Revision']) {
+			row.querySelector('input[name="version"]').setAttribute("data-value",data["Revision"]);
+			row.querySelector('input[name="version"]').setAttribute("data-versions",data["Revisions"].toString());
+			$(row).css("background","#ed8a8a");
+		}
+		if(data['DocCode'])
+			row.setAttribute("data-doc-code",data["DocCode"]);
+		if(data['Description'])
+			row.querySelector('[name="description"]').value=data["Description"];
+			row.querySelector('select[name="todo"]').appendChild(createOptions(type,data["Code"]));
+		return row;
+	};
 	//分享(批量)
 	$("#btnShare").on("click",function(){
 		var items=homeFileGridApi.selectedObjects;
