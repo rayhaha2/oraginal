@@ -125,10 +125,6 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			break;
 		}
 	};
-	
-	/*$("#dlgUploadFile").draggable({
-		handle: ".modal-header"
-	});*/
 	var openUploadList=function(){
 		$("#btnUploadList").parent(":not(.open)").children(".dropdown-menu").dropdown("toggle");
 	};
@@ -279,14 +275,10 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		}
 	});
 	homeFileGrid.on("unloaded",function(e){
-		$("#btnDownload,#btnShare,#btnDelete").toggleClass("disabled",false);
+		$("#btnDownload,#btnShare,#btnDelete").toggleClass("disabled",true);
 	});
-	homeFileGrid.on("selectedrow",function(e){
-		$("#btnDownload,#btnShare,#btnDelete").toggleClass("disabled",false);
-	});
-	homeFileGrid.on("deselectedrow",function(e){
-		if(homeFileGridApi.selectedRows.length==0)
-			$("#btnDownload,#btnShare,#btnDelete").toggleClass("disabled",true);
+	homeFileGrid.on("changedcheckbox",function(e){
+		$("#btnDownload,#btnShare,#btnDelete").toggleClass("disabled",homeFileGridApi.selectedRows.length==0);
 	});
 	var draggingElement=null;
 	/* events fired on the draggable target */
@@ -495,7 +487,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		onUnloaded:function(e){
 			$("#btnRealDelete,#btnRestore").prop("disabled",true);
 		},
-		onChange:function(e){
+		onChangedcheckbox:function(e){
 			$("#btnRealDelete,#btnRestore").prop("disabled",trashFileGridApi.selectedRows.length==0);
 		}
 	}).data("ariaGrid");
@@ -660,8 +652,8 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$("#dlgNewFolder").modal("show");
 	});
 	$("#dlgNewFolder").on("show.bs.modal",function(){
-		$('#frmNewFolder').data('bootstrapValidator').resetForm(true);
 	}).on("shown.bs.modal",function(){
+		$('#frmNewFolder').data('bootstrapValidator').resetForm(true);
 		$('input[name="Name"]',this).focus();
 	});
 	$("#frmNewFolder").bootstrapValidator({
@@ -705,7 +697,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		var blobSlice = file.slice || file.mozSlice || file.webkitSlice,
 			spark = new SparkMD5.ArrayBuffer(),
 			fileReader = new FileReader(),
-			chunkSize = 8388608,                // Read in chunks of 8MB
+			chunkSize = 8388608,				// Read in chunks of 8MB
 			chunks = Math.ceil(file.size / chunkSize),
 			currentChunk = 0;
 		var loadNext = function() {
@@ -715,7 +707,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			fileReader.readAsArrayBuffer(blobSlice.call(file, start, end));
 		};
 		fileReader.onload = function (e) {
-			spark.append(e.target.result);                  // Append array buffer
+			spark.append(e.target.result);					// Append array buffer
 			currentChunk++;
 			if (currentChunk < chunks) {
 				loadNext();
@@ -761,7 +753,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		if(percentLoaded==100){
 			row.querySelector('[axis="Progress"]>.nowrap').textContent=data.code==0?"已完成":"上传失败";
 		}else{
-			row.querySelector('progress').value=data["percentLoaded"];  
+			row.querySelector('progress').value=data["percentLoaded"];	
 		}
 		row.querySelector('td[axis="Action"]').textContent=data["action"];
 		row.querySelector('[axis="Size"]>.nowrap').textContent=NumberFormat.formatShortIECBytes(data.file.size,2);
@@ -800,6 +792,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	$("#btnUpload").on("click",function(){
 		$("#dlgUploadFile").modal("show");
 	});
+	var uploadListGrid=$("#uploadListGrid");
 	// 表格默认设置项
 	function DefaultSettings(){
 		throw new Error();
@@ -973,9 +966,9 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$("#dlgToUpload").modal("hide");
 	});
 	// frmFileUpload 待修改
-	$(window).on("beforeunload",function(){
+	/*$(window).on("beforeunload",function(){
 		$('#frmFileUpload')[0].reset();
-	});
+	});*/
 	$(document).on("uploadtasksprogress",function(e){
 		if(e.uploading==0){
 			setTimeout(function(){
@@ -1057,13 +1050,9 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			exhibitionNum.attr("data-num",+exhibitionNum.attr("data-num")+1);
 			var prom1=folderService.uploadFolder(request,this).then(function(response){
 				task.code=response.code;
-				var row=uploadGrid.find('tbody>tr[data-id="'+task.id+'"]');
-				row[0].scrollIntoView();
-				if(response.code===0){
-					uploadStat.successFiles.push(file);
-					uploadStat.successMessages.push("文件\""+file.name+"\"上传成功");
-					row.attr("data-state","done");
-					row.find('>td[axis="Progress"]>.nowrap').text("已完成");
+				if(response.code==0){
+					//$.pnotify("文件\""+file.name+"\"上传成功","","success");
+					uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("已完成");
 					var fileInfo=response.data[0];
 					task.file.id=fileInfo.fileid;
 				}else{
@@ -1098,18 +1087,10 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			return;
 		$.when.apply($,promises).then(function(){
 			//TODO
-			/*if(uploadStat.successFiles.length){
-				var message=toFilesMessage(uploadStat.successFiles)+"上传成功";
-				$.pnotify(message,"","success");
-			}*/
 			homeFileGridApi.searchParams=currentFolder.Id;
 			homeFileGridApi.load(homeFileGrid.children(qsFIRSTROWGROUP));
 		},function(err){
 			//TODO
-			/*if(uploadStat.successFiles.length){
-				var message=toFilesMessage(uploadStat.successFiles)+"上传成功";
-				$.pnotify(message,"","success");
-			}*/
 			if(uploadStat.errorFiles.length){
 				var message=toFilesMessage(uploadStat.errorFiles)+"上传失败："+uploadStat.errorMessages[0];
 				$.pnotify(message,"","error");
@@ -1225,10 +1206,6 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		if(data['Description'])
 			row.querySelector('[name="description"]').value=data["Description"];
 			row.querySelector('select[name="todo"]').appendChild(createOptions(type,data["Code"]));
-		//历史已删待修改权限及checkbox
-		if(data['IsHistory']=="1") {
-			$(row).css("background-color","#9d9d9d");
-		}
 		return row;
 	};
 	//分享(批量)
@@ -1249,10 +1226,10 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$("#frmShare .btn-primary").prop("disabled",this.value.trim()=="");
 	});
 	
-//  $("#dlgShareLink .btn-copy").on("click",function(){
-//      $('input[name="ShareLink"]')[0].select();
-//      $.pnotify("链接地址复制成功，它在您的剪切板中！","提示","success");
-//  });
+//	$("#dlgShareLink .btn-copy").on("click",function(){
+//		$('input[name="ShareLink"]')[0].select();
+//		$.pnotify("链接地址复制成功，它在您的剪切板中！","提示","success");
+//	});
 	$("#frmShare .btn-primary").on("click",function(){
 		var data={Name:"",AuthID:xhrConfig.user.Id,Authority:1,FolderIds:[],DocIds:[],ShareAuthority:'',ExpDate:''};
 		var items=homeFileGridApi.selectedObjects;
@@ -1303,7 +1280,8 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		var formData={
 			Folders:[],
 			Files:[],
-			zipName:zipName
+			zipName:zipName,
+			projectid:0
 		};
 		selectedObjects.forEach(function(data){
 			if(data.Type=="Folder"){
@@ -1371,7 +1349,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	}).data("ariaGrid");
 	searchResultFileGridApi.dataFunction=function(rowgroup){
 		var that=this;
-		return documentService.searchDocument({q:this.searchParams},this).then(function(response){
+		return documentService.searchDocument({Q:this.searchParams,FolderId:currentFolder.Id},this).then(function(response){
 			var data=response.data;
 			var gridApi=$(this).data("ariaGrid");
 			var regex=new RegExp(escapeRegExp(that.searchParams),"ig");
@@ -1425,7 +1403,119 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		}
 		return row;
 	};
+	//搜索文件的打开文件位置
+	var loadAndLocatePath=function(tree,path,fileName){
+		var loadPath=function(path,callback,errorback){
+			var names=path.match(/[^\/]+/g);
+			var pathFolders=[];
+			var pathNames=names.slice(0);
+
+			var loadChildren=function(treeitem){
+				pathFolders.push(treeitem.prop("data"));
+				var name=pathNames.shift();
+				if(treeitem.attr("aria-expanded")){
+					var childitem=findChildItemByName(treeitem,name);
+					if(childitem.length==0)
+						return errorback("ERR_CHILD_NOT_FOUND");
+					pathFolders.push(childitem.prop("data"));
+					if(pathNames.length==0){
+						setTimeout(function(){
+							callback(pathFolders);
+						});
+					}else{
+						loadChildren(childitem);
+					}
+				}else{
+					tree.load(treeitem).then(function(){
+						var childitem=findChildItemByName(treeitem,name);
+						if(childitem.length==0)
+							return errorback("ERR_CHILD_NOT_FOUND");
+						pathFolders.push(childitem.prop("data"));
+						if(pathNames.length==0){
+							callback(pathFolders);
+						}else{
+							loadChildren(childitem);
+						}
+					},errorback);
+				}
+			};
+			var rootitem=tree.findItemById(homeFolder.Id);
+			pathNames.shift();
+			pathFolders.push(rootitem.prop("data"));
+			if(names.length==1){
+				setTimeout(function(){
+					callback(pathFolders);
+				});
+			}else{
+				loadChildren(rootitem);
+			}
+		};
+		var findChildItemByName=function(contextItem,name){
+			var childitem;
+			var childitems=contextItem.children('ul').children('[role="treeitem"]');
+			Array.prototype.some.call(childitems,function(treeitem){
+				if(treeitem.data.Name==name){
+					childitem=$(treeitem);
+					return true;
+				}
+			});
+			return childitem||$();
+		};
+		loadPath(path,function(folders){
+			var lastFolder=folders[folders.length-1];
+			var id=lastFolder.Id;
+			if(fileName){
+				homeFileGrid.children("tbody").show();
+				homeFileGrid.one("loaded",function(e){
+					locatedAndViewFileByName(homeFileGrid,fileName);
+				});
+			}
+			var treeSelectedRow = $('#homeTree li[aria-selected="true"]');
+			var treeSelectedRowData = treeSelectedRow.prop("data");
+			if(treeSelectedRowData["Id"] == id){
+				locatedAndViewFileByName(homeFileGrid,fileName);
+			}
+			tree.locateItemById(id);
+		},function(error){
+			homeFileGrid.children("tbody").show();
+			if(error=="ERR_CHILD_NOT_FOUND"){
+				$.alertAsync("无法定位路径\""+path+"\"");
+			}else{
+				$.alertAsync("路径信息加载失败\""+path+"\"");
+			}
+		});
+	};
+	//搜索时根据文件名来定位显示到视图且聚集状态
+	var locatedAndViewFileByName = function(homeFileGrid,fileName){
+		var lowerName=fileName.toLowerCase();
+		var row=homeFileGrid.find('tr[data-name="'+lowerName+'"]');
+		if(row.length){
+			row[0].scrollIntoView();
+			row.addClass("focused");
+			setTimeout(function(){
+				row.removeClass("focused");
+			},3000);
+		}
+	}
+	//搜索的文件信息定位功能
+	$('#searchResultFileGrid tbody').on("click",'td[axis="Op"]>a',function(){
+		$("#homeToolbar>.form-container").append($("#frmSearch"));
+		$("#returnSearchList").show();
+		$("#panelSeachResult").hide();
+		$("#panelHome").show();
+		homeFileGrid.children("tbody").hide();
+		var row=$(this).closest("tr");
+		var data=row.prop("data");
+		loadAndLocatePath(homeTreeApi,"/"+homeFolder["Name"]+data["Path"],data["Name"]);
+	});
+	//返回到上一次的搜索结果界面
+	$("#returnSearchList").click(function(){
+		$("#returnSearchList").hide();
+		$("#panelHome").hide();
+		$("#panelSeachResult").show();
+	});
 	$("#frmSearch input[name='q']").on("input",function(){
+		homeFileGridApi.status="";
 		var q=$("input[name='q']").prop("value").trim();
 		if(specialSymbol.test(q))
 			return $.alertAsync("名称不能包含特殊字符\\/:*?<>|\"");
@@ -1434,14 +1524,20 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		}else{
 			q=q.replace(/"/g,"\\$1").toLowerCase();
 			var selector='[data-name*="'+q+'"]';
+			var totalNum = homeFileGridApi.jqGrid.find('tbody>tr').length;
+			var hideNum = 0;
 			homeFileGridApi.jqGrid.find('tbody>tr').each(function(index,tr){
 				var name=tr.getAttribute("data-name");
 				if(name&&name.indexOf(q)>-1){
 					tr.classList.remove("hidden");
 				}else{
 					tr.classList.add("hidden");
+					hideNum++;
 				}
 			});
+			if(totalNum == hideNum){
+				homeFileGridApi.status="当前目录下未找到匹配项目";
+			}
 		}
 	});
 	var btnSearch=$("#btnSearch");
@@ -1470,8 +1566,9 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	});
 	$("#lnkBackHome").on("click",function(e){
 		e.preventDefault();
-//      $("input[name='q']").val("");
+//		$("input[name='q']").val("");
 		$("#homeToolbar>.form-container").append($("#frmSearch"));
+		$("#returnSearchList").show();
 		$("#panelSeachResult").hide();
 		$("#panelHome").show();
 	});
@@ -1494,13 +1591,9 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		onUnloaded:function(e){
 			btnDeleteSent.prop("disabled",true);
 		},
-		onSelectedrow:function(e){
-			btnDeleteSent.prop("disabled",false);
-		},
-		onDeselectedrow:function(e){
-			if(sentFileGridApi.selectedRows.length==0)
-				btnDeleteSent.prop("disabled",true);
-		},
+		onChangedcheckbox:function(e){
+			btnDeleteSent.prop("disabled",sentFileGridApi.selectedRows.length==0);
+		}
 	}).data("ariaGrid");
 	sentFileGridApi.dataFunction=function(rowgroup){
 		return shareService.getSendedDOF({Id:this.searchParams},this).then(function(response){
@@ -1518,7 +1611,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		if(data["Description"])
 			rowLabel.title=data["Description"];
 		row.querySelector('[axis="CreateTime"]').textContent=DateFormat.formatLocalString(data["CreateTime"]);
-//      row.querySelector('[axis="Authority"]').textContent=data["ShareAuthority"];
+//		row.querySelector('[axis="Authority"]').textContent=data["ShareAuthority"];
 		var chs=data["ShareAuthority"].match(/\S/g)||[];
 		var selectorText=chs.reduce(function(str,ch){
 			if(ch!="-")
@@ -1533,6 +1626,10 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		var button=row.querySelector('.btn-copyLink');
 		button.setAttribute("data-clipboard-text",link);
 		$(button).onClickExecCopy();//给按钮注册了点击事件，触发点击事件后会复制data-clipboard-text的值
+		//历史已删待修改权限及checkbox
+		if(data['IsHistory']=="1") {
+			$(row).css("background-color","#9d9d9d");
+		}
 		return row;
 	};
 	//发送文件批量删除
@@ -1570,13 +1667,9 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		onUnloaded:function(e){
 			btnDeleteReceived.prop("disabled",true);
 		},
-		onSelectedrow:function(e){
-			btnDeleteReceived.prop("disabled",false);
-		},
-		onDeselectedrow:function(e){
-			if(receiveFileGridApi.selectedRows.length==0)
-				btnDeleteReceived.prop("disabled",true);
-		},
+		onChangedcheckbox:function(e){
+			btnDeleteReceived.prop("disabled",receiveFileGridApi.selectedRows.length==0);
+		}
 	}).data("ariaGrid");
 	receiveFileGridApi.dataFunction=function(rowgroup){
 		return shareService.getReceivedDOF(null,this).then(function(response){
@@ -1611,7 +1704,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		},"[data-auth]");
 		//淡现权限，隐藏权限
 		$(row.querySelectorAll(selectorText)).css("background-color","#e3e2e2");
-		$(row.querySelectorAll(selectorText + ":not([class*='char-icon'])")).remove();
+		$(row.querySelectorAll(selectorText + ":not([class*='char-icon'])")).css("visibility","hidden");
 		//以下用于连接复制到剪切板功能，定义使用data-clipboard-text属性
 		var link=baselink+"?"+$.param({uuid:data["Link"]});
 		var button=row.querySelector('.btn-copyLink');
@@ -1887,7 +1980,8 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			documentService.batchDownlode({
 				Folders:[{id:data.Id}],
 				Files:[],
-				zipName:data.Name
+				zipName:data.Name,
+				projectid : 0
 			});
 		}else{
 			var url = xhrConfig.resolvePath("v1s/documents/file/download/"+data.Id)+
@@ -1905,7 +1999,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$.confirmAsync("确定要将\""+data["Name"]+"\"移动到回收站?\n删除文件在回收站中保留30天后自动清除").then(function(confirmed){
 			if(!confirmed)return;
 			var formData={Type:data["Type"],Id:data["Id"],FromFolderId:currentFolder.Id};
-			if(data["Type"] == "Folder"){   // 删除文件夹
+			if(data["Type"] == "Folder"){	// 删除文件夹
 				recycleService.moveSingleDOF2Recycle(formData).then(function(response){
 					if(response.code==0){
 						$.pnotify("删除成功","","success");
@@ -1916,7 +2010,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 						$.pnotify(response.message,"错误提示","error");
 					}
 				});
-			}else{                      // 删除文件
+			}else{						// 删除文件
 				formData.DocId=data["DocId"];
 				recycleService.moveSingleDOF2Recycle(formData).then(function(response){
 					if(response.code==0){
@@ -2035,6 +2129,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	// 设置转存
 	var currentTransferData = null;
 	$("#homeDAVExplorer .file-grid").on("click",".btn-saveas",function(){
+		$('#dlgFileTransfer [type="submit"]').removeAttr("disabled" );
 		var row = $(this).closest("tr");
 		var data = row.prop("data");
 		currentTransferData=data;
@@ -2043,8 +2138,6 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		if(btn.attr("aria-busy")=="true")
 			return;
 		btn.attr("aria-busy",true);
-		var row = $(this).closest("tr");
-		var data = row.prop("data");
 		var persRootItem=persFileSaveTree.children();
 		persRootItem.children('[role="group"]').children().remove();
 		projFileSaveTree.children().remove();
@@ -2116,7 +2209,8 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		treeitemTemplate:"#fileSaveTreeTreeitem"
 	}).data("ariaTree");
 	projFileSaveTreeApi.dataFunction=function(treeitem){
-		return folderService.getSubFoldersById({Id:treeitem.prop("data")["Id"]},this).then(function(response){
+		var data = treeitem.prop("data");
+		return folderService.getProjSubFoldersById(data,this).then(function(response){
 			return filterFolders(response.data,"aw");
 		});
 	};
@@ -2133,14 +2227,17 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	
 	// 设置转存的提交按钮
 	$("#dlgFileTransfer").on("click",".btn-primary",function(){ 
+		$('#dlgFileTransfer [type="submit"]').prop("disabled","true");
 		var selectedRow = $("#dlgFileTransfer li[aria-selected='true']");
 		var transferFolderData = selectedRow.prop("data");
 		var dumptype = selectedRow.attr("data-transfer-action")=="person" ?Transfer.PERSONAL_PERSONAL:Transfer.PERSONAL_PROJECT;
-		var id = currentTransferData["Type"]== "Folder" ? currentTransferData["Id"] :   currentTransferData["DocId"];
+		var id = currentTransferData["Type"]== "Folder" ? currentTransferData["Id"] :	currentTransferData["DocId"];
+		
 		var data = {
 			Id:id,
 			Type:currentTransferData["Type"],
-			ToFolderId:transferFolderData["Id"]
+			ToFolderId:transferFolderData["Id"],
+			ProjectId : transferFolderData["ProjectId"]
 		}
 		return personService.personTransferFile(data,dumptype,this).then(function(response){
 			if(response.code==0){
@@ -2153,7 +2250,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		},function(error){
 			$.pnotify("转存失败"+error,"ERROR","false");
 			$("#dlgFileTransfer").modal('hide');
-		}); 
+		});
 	});
 
 	//重命名
