@@ -14,7 +14,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	var baseSharingLink=document.head.querySelector('meta[name="baseSharingLink"]').content;
 	var qsFIRSTROWGROUP='tbody[role="rowgroup"]:first-of-type';
 	var qsROW='[role="row"]';
-	var qsNOTBUSY=':not([aria-busy="true"])';
+	var qsNOTBUSY=':not([aria-busy="true"])'; 
 	var folderService=new FolderService();
 	var documentService=new DocumentService();
 	var recycleService=new RecycleService();
@@ -29,6 +29,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		PROJECT_PERSONAL:3,
 		PROJECT_PROJECT:4
 	};
+	//test
 	var normalizePath=function(path){
 		if(path==null)
 			return "";
