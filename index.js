@@ -2,10 +2,10 @@
  * index.js
  */
 require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc/app/ajax/DocumentService","persdoc/app/ajax/RecycleService","persdoc/app/ajax/InodeService","persdoc/app/ajax/ShareService","persdoc/app/ajax/PersonService",
-		"bim/utils/NumberFormat","bim/utils/DateFormat","bim/utils/PathUtils","sparkmd5","app/mimeUtils",
+		"bim/utils/NumberFormat","bim/utils/DateFormat","bim/utils/PathUtils","sparkmd5","app/mimeUtils","app/nls/classesRoot",
 		"jq/pnotify","jq/ariaTree","jq/ariaGrid","jq/ariaBreadcrumb","jq/ariaDAVExplorer","jq/misc-plugins","jq/async-dialogs","bim/shims/html5-template","dojo/domReady!"
 ],function($,xhrConfig,FolderService,DocumentService,RecycleService,InodeService,ShareService,PersonService,
-		NumberFormat,DateFormat,PathUtils,SparkMD5,mimeUtils){
+		NumberFormat,DateFormat,PathUtils,SparkMD5,mimeUtils,classesRoot){
 	"use strict";
 	var homeFolder=null;
 	var currentFolder=null;
@@ -76,9 +76,26 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	var getNewVer=function(ver){
 		if(!ver)
 			return "1.0";
-		var suffix=ver.match(/(?:\d*)$/)[0];
-		var prefix=ver.substring(0,ver.length-suffix.length);
-		return prefix+(+suffix+1);
+		var verStr = ver.toString();
+		var m=verStr.match(/\d\d*$/);
+		if(m){
+			var suffix=m[0];
+			var prefix=verStr.substring(0,verStr.length-suffix.length);
+			var suffix2=(+suffix+1).toString();
+			var offset=suffix2.length-suffix.length;
+			if(offset<0)
+				suffix2=suffix.substring(0,-offset)+suffix2;
+			return prefix+suffix2;
+		}else{
+			return verStr+"2";
+		}
+	};
+	var getNewVerAvail=function(ver,naVers){
+		var newVer=getNewVer(ver);
+		while(naVers.indexOf(newVer)>-1){
+			newVer=getNewVer(newVer);
+		}
+		return newVer;
 	};
 	var stripHash=function(url){
 		var pos=url.indexOf("#");
@@ -279,6 +296,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	});
 	homeFileGrid.on("changedcheckbox",function(e){
 		$("#btnDownload,#btnShare,#btnDelete").toggleClass("disabled",homeFileGridApi.selectedRows.length==0);
+
 	});
 	var draggingElement=null;
 	/* events fired on the draggable target */
@@ -368,7 +386,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			});
 			data=arrFolder.concat(arrFile);
 			//触发在ariaDAVExplorer.js中注册的listenReloadBusy事件，用来设置重新加载按钮状态
-			$(document).trigger("listenReloadBusy",true)
+			$(document).trigger("listenReloadBusy",true);
 			return data;
 		});
 	};
@@ -432,7 +450,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	//显示/隐藏历史版本
 	$("#chkShowHistoryRev").on("change",function(){
 		var checked=this.checked;
-		var selectorText='tbody>tr[data-is-latest="true"]'
+		var selectorText='tbody>tr[data-is-latest="true"]';
 		if(checked){
 			selectorText+=':not([aria-expanded="true"])';
 		}else{
@@ -793,6 +811,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$("#dlgUploadFile").modal("show");
 	});
 	var uploadListGrid=$("#uploadListGrid");
+	var maxNewVersion;
 	// 表格默认设置项
 	function DefaultSettings(){
 		throw new Error();
@@ -826,7 +845,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	DefaultSettings.prototype.reset=function(){
 		this.selDefaultFileTodo.prop("value","upgrade").trigger("change");
 		this.selDefaultVersion.prop("value","auto").trigger("change");
-		this.txtDefaultVersion.prop("value","").trigger("change");
+		this.txtDefaultVersion.prop("value",getNewVer(maxNewVersion)).trigger("change");
 		this.txtDefaultDescription.prop("value","");
 	};
 	var defaults=DefaultSettings.newInstance();
@@ -852,7 +871,10 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		if(this.value==="auto"){
 			uploadListGrid.find('tr[data-type="Doc"] input[name="version"]').each(function(index,input){
 				var ver=input.getAttribute("data-value");
-				input.setAttribute("placeholder",getNewVer(ver));
+				ver = ver?ver:"";
+				var naVers = input.getAttribute("data-versions");
+				naVers = naVers?naVers.split(","):[""];
+				input.setAttribute("placeholder",getNewVerAvail(ver,naVers));
 			});
 		}else if (this.value==="specified") {
 			var defaultVersion=$("#txtDefaultVersion").prop("value");
@@ -921,7 +943,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$("#nextSubmitFiles").prop("disabled",false);
 		clientFiles=getClientFiles(files);
 		uploadListGridApi.dataFunction=function(rowgroup){
-			var folderId=16;//currentFolder.Id 6270 16
+			var folderId=currentFolder.Id;//currentFolder.Id 6270 16
 			var sentFiles=clientFiles.map(function(cFile){
 				return {
 					Name: cFile.Name,
@@ -1011,6 +1033,12 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 				uploadStat.rejectedMessages.push("文件\""+file.name+"\"大小超过100MB");
 				return;
 			}
+			var ext=getExtension(file.name).toLowerCase();
+			if(classesRoot.indexOf(ext)==-1){
+				uploadStat.rejectedFiles.push(file);
+				uploadStat.rejectedMessages.push("文件\""+file.name+"\"文件格式不支持");
+				return;
+			}
 			var todo = defaults.getComputedTodoValue(tr.querySelector('select[name="todo"]'));
 			var Description = defaults.getComputedDescriptionValue(tr.querySelector('input[name="description"]'));
 			var Revision = defaults.getComputedVersionValue(tr.querySelector('input[name="version"]'));
@@ -1050,9 +1078,15 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			exhibitionNum.attr("data-num",+exhibitionNum.attr("data-num")+1);
 			var prom1=folderService.uploadFolder(request,this).then(function(response){
 				task.code=response.code;
+				var row=uploadGrid.find('tbody>tr[data-id="'+task.id+'"]');
+				row[0].scrollIntoView();
 				if(response.code==0){
 					//$.pnotify("文件\""+file.name+"\"上传成功","","success");
-					uploadGrid.find('tbody>tr[data-id="'+task.id+'"]>td[axis="Progress"]>.nowrap').text("已完成");
+					var fileInfo=response.data[0];
+					uploadStat.successFiles.push(file);
+					uploadStat.successMessages.push("文件\""+file.name+"\"上传成功");
+					row.attr("data-state","done");
+					row.find('>td[axis="Progress"]>.nowrap').text("已完成");
 					var fileInfo=response.data[0];
 					task.file.id=fileInfo.fileid;
 				}else{
@@ -1080,7 +1114,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			return files.length==1?"文件\""+files[0].name+"\"":"\""+files[0].name+"\"等"+files.length+"个文件"
 		};
 		if(uploadStat.rejectedFiles.length){
-			var message=toFilesMessage(uploadStat.rejectedFiles)+"将不上传：文件大小为0B，或超过100MB，或已存在同名文件";
+			var message=toFilesMessage(uploadStat.rejectedFiles)+"将不上传：文件大小为0B，或超过100MB，或文件格式不支持";
 			$.pnotify(message,"","notice");
 		}
 		if(tasks.length==0)
@@ -1109,6 +1143,18 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 	});
 	window.PathUtils=PathUtils;//XXX
 	uploadListGrid.on("loaded",function(){
+		var rev=[];
+		uploadListGrid.find('tbody input[name="version"]').each(function(index,input){
+			rev.push(input.getAttribute("data-value"));
+		});
+		maxNewVersion = Math.max.apply(Math,rev);
+		if (maxNewVersion == 0) {
+			maxNewVersion = null;
+		}else{
+			if(maxNewVersion>>>0==maxNewVersion){
+				maxNewVersion=maxNewVersion.toFixed(1).toString();
+			}
+		}
 		defaults.reset();
 		uploadListGrid.find('tr[data-type="Doc"] select[name="todo"]').on("change",function(){
 			this.setAttribute("data-value",this.value);
@@ -1137,12 +1183,19 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$("#txtDefaultVersion").on("change",function(){
 			var that=$(this);
 			var q=that.prop("value").trim();
+			if (q=="") {
+				return;
+			}
 			if(specialSymbol.test(q)) {
 				that.prop("value","");
 				return $.alertAsync("名称不能包含特殊字符\\/:*?<>|\"");
 			}
 			var tmpVersion = [];
 			uploadListGrid.find('tbody input[name="version"]').each(function(index,input){
+				var vers = input.getAttribute("data-versions");
+				if(!vers) {
+					return true;
+				}
 				tmpVersion.push(input.getAttribute("data-versions").match(/\S\S*/g));
 			});
 			tmpVersion.some(function(f){
@@ -1619,7 +1672,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 			return str;
 		},"[data-auth]");
 		//淡现权限，隐藏权限
-		$(row.querySelectorAll(selectorText)).css("background-color","#e3e2e2");
+		$(row.querySelectorAll(selectorText)).css("visibility","hidden");
 		$(row.querySelectorAll(selectorText + ":not([class*='char-icon'])")).css("visibility","hidden");
 		//以下用于连接复制到剪切板功能，定义使用data-clipboard-text属性
 		var link=baselink+"?"+$.param({uuid:data["Link"]});
@@ -1628,7 +1681,9 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		$(button).onClickExecCopy();//给按钮注册了点击事件，触发点击事件后会复制data-clipboard-text的值
 		//历史已删待修改权限及checkbox
 		if(data['IsHistory']=="1") {
-			$(row).css("background-color","#9d9d9d");
+			$(row).css("background-color","#f9f9f9");
+			$(row.querySelectorAll('td[axis="Authority"] .btn-group, td[axis="Op"] .btn-group')).css("visibility","hidden");
+			$(row.querySelectorAll('td[axis="Id"] input')).remove();
 		}
 		return row;
 	};
