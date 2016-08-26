@@ -246,7 +246,7 @@ require(["jquery","app/ajax/xhrConfig","persdoc/app/ajax/FolderService","persdoc
 		var item=e.detail;
 		var data=item.prop("data");
 		homeTreeApi.locateItemById(data["Id"],{dontTrack:true});
-	})
+	});
 	homeDAVExplorerApi.jqBreadcrumb.on("back forward",function(e){
 		var state=e.detail;
 		var folder=state[state.length-1];
